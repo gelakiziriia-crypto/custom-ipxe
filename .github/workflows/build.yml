@@ -18,22 +18,17 @@ jobs:
     - name: Clone official iPXE
       run: git clone --depth 1 https://github.com/ipxe/ipxe.git
 
-    - name: Prepare Core Configurations
-      run: |
-        sed -i 's/#undef\tDOWNLOAD_PROTO_HTTPS/#define DOWNLOAD_PROTO_HTTPS/' ipxe/src/config/general.h
-        sed -i 's/#undef\tSANBOOT_PROTO_ISCSI/#define SANBOOT_PROTO_ISCSI/' ipxe/src/config/general.h
-        sed -i 's/#undef\tSANBOOT_PROTO_HTTP/#define SANBOOT_PROTO_HTTP/' ipxe/src/config/general.h
-        sed -i 's/#undef\tCONSOLE_FRAMEBUFFER/#define CONSOLE_FRAMEBUFFER/' ipxe/src/config/console.h
-        sed -i 's/#undef\tUSB_HCD_XHCI/#define USB_HCD_XHCI/' ipxe/src/config/usb.h
-        sed -i 's/#undef\tUSB_KEYBOARD/#define USB_KEYBOARD/' ipxe/src/config/usb.h
-        sed -i 's/#undef\tUSB_BLOCK/#define USB_BLOCK/' ipxe/src/config/usb.h
-        sed -i 's/#undef\tUSB_EFI/#define USB_EFI/' ipxe/src/config/usb.h
-        cp chain.ipxe ipxe/src/chain.ipxe
-
     - name: Compile Full BIOS binary
       run: |
         cd ipxe/src
-        # Для BIOS пишем максимальный конфиг со всеми командами и bzImage
+        # Включаем HTTPS, iSCSI и графику для BIOS
+        sed -i 's/#undef\tDOWNLOAD_PROTO_HTTPS/#define DOWNLOAD_PROTO_HTTPS/' config/general.h
+        sed -i 's/#undef\tSANBOOT_PROTO_ISCSI/#define SANBOOT_PROTO_ISCSI/' config/general.h
+        sed -i 's/#undef\tSANBOOT_PROTO_HTTP/#define SANBOOT_PROTO_HTTP/' config/general.h
+        sed -i 's/#undef\tCONSOLE_FRAMEBUFFER/#define CONSOLE_FRAMEBUFFER/' config/console.h
+        cp ../../chain.ipxe chain.ipxe
+        
+        # Дописываем тяжелые команды отладки и bzImage для BIOS
         cat <<EOF >> config.h
         #define DOWNLOAD_PROTO_NFS
         #define IMAGE_BZIMAGE
@@ -56,9 +51,20 @@ jobs:
     - name: Compile Full UEFI binary
       run: |
         cd ipxe/src
-        # Чистим старый конфиг BIOS
-        git checkout config/general.h
-        # Для UEFI собираем максимальный набор команд, но без bzImage (используем IMAGE_EFI)
+        # Полностью сбрасываем конфигурацию к заводской, убирая BIOS-специфичные хаки
+        git checkout -- config/
+        
+        # Включаем HTTPS, iSCSI, графику и ВСЕ модули USB для UEFI
+        sed -i 's/#undef\tDOWNLOAD_PROTO_HTTPS/#define DOWNLOAD_PROTO_HTTPS/' config/general.h
+        sed -i 's/#undef\tSANBOOT_PROTO_ISCSI/#define SANBOOT_PROTO_ISCSI/' config/general.h
+        sed -i 's/#undef\tSANBOOT_PROTO_HTTP/#define SANBOOT_PROTO_HTTP/' config/general.h
+        sed -i 's/#undef\tCONSOLE_FRAMEBUFFER/#define CONSOLE_FRAMEBUFFER/' config/console.h
+        sed -i 's/#undef\tUSB_HCD_XHCI/#define USB_HCD_XHCI/' config/usb.h
+        sed -i 's/#undef\tUSB_KEYBOARD/#define USB_KEYBOARD/' config/usb.h
+        sed -i 's/#undef\tUSB_BLOCK/#define USB_BLOCK/' config/usb.h
+        sed -i 's/#undef\tUSB_EFI/#define USB_EFI/' config/usb.h
+        
+        # Дописываем все команды отладки для UEFI (без bzImage)
         cat <<EOF >> config.h
         #define DOWNLOAD_PROTO_NFS
         #define IMAGE_PNG
