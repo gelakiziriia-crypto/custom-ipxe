@@ -65,7 +65,7 @@ jobs:
         sed -i 's/#undef\tUSB_BLOCK/#define USB_BLOCK/' config/usb.h
         sed -i 's/#undef\tUSB_EFI/#define USB_EFI/' config/usb.h
         
-        # Дописываем все команды отладки для UEFI
+        # Дописываем команды отладки для UEFI (убрана проблемная PCI_CMD)
         cat <<EOF >> config.h
         #define DOWNLOAD_PROTO_NFS
         #define IMAGE_PNG
@@ -76,14 +76,13 @@ jobs:
         #define MENU_CMD
         #define SHELL_CMD
         #define PING_CMD
-        #define PCI_CMD
         #define PARAM_CMD
         #define REBOOT_CMD
         #define POWEROFF_CMD
         EOF
         cat config.h >> config/general.h
         
-        # Собираем UEFI через snponly, чтобы избежать конфликта с pcbios-компонентами
+        # Компилируем UEFI
         make bin-x86_64-efi/snponly.efi EMBED=chain.ipxe
         make bin-x86_64-efi/ipxe.usb EMBED=chain.ipxe
 
