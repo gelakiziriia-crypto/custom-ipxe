@@ -51,8 +51,9 @@ jobs:
     - name: Compile Full UEFI binary
       run: |
         cd ipxe/src
-        # Полностью сбрасываем конфигурацию к заводской, убирая BIOS-специфичные хаки
+        # Сбрасываем изменения, возвращаясь к чистому состоянию репозитория
         git checkout -- config/
+        cp ../../chain.ipxe chain.ipxe
         
         # Включаем HTTPS, iSCSI, графику и ВСЕ модули USB для UEFI
         sed -i 's/#undef\tDOWNLOAD_PROTO_HTTPS/#define DOWNLOAD_PROTO_HTTPS/' config/general.h
@@ -64,7 +65,7 @@ jobs:
         sed -i 's/#undef\tUSB_BLOCK/#define USB_BLOCK/' config/usb.h
         sed -i 's/#undef\tUSB_EFI/#define USB_EFI/' config/usb.h
         
-        # Дописываем все команды отладки для UEFI (без bzImage)
+        # Дописываем все команды отладки для UEFI
         cat <<EOF >> config.h
         #define DOWNLOAD_PROTO_NFS
         #define IMAGE_PNG
@@ -81,7 +82,9 @@ jobs:
         #define POWEROFF_CMD
         EOF
         cat config.h >> config/general.h
-        make bin-x86_64-efi/ipxe.efi EMBED=chain.ipxe
+        
+        # Собираем UEFI через snponly, чтобы избежать конфликта с pcbios-компонентами
+        make bin-x86_64-efi/snponly.efi EMBED=chain.ipxe
         make bin-x86_64-efi/ipxe.usb EMBED=chain.ipxe
 
     - name: Upload Artifacts
@@ -90,5 +93,5 @@ jobs:
         name: ipxe-full-binaries
         path: |
           ipxe/src/bin/undionly.kpxe
-          ipxe/src/bin-x86_64-efi/ipxe.efi
+          ipxe/src/bin-x86_64-efi/snponly.efi
           ipxe/src/bin-x86_64-efi/ipxe.usb
