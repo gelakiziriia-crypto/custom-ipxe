@@ -72,11 +72,7 @@ jobs:
       run: |
         cd ipxe/src
         
-        # ХАК: Отключаем BIOS-компонент сокрытия памяти, который ломает линковку 64-битного UEFI
-        sed -i 's/BLIB_OBJS\s+=/\0\nBLIB_OBJS\t+=/' arch/x86/Makefile.pcbios
-        sed -i '/hidemem.o/d' arch/x86/Makefile.pcbios
-        
-        # Включаем базовые протоколы, графику и весь стек USB 3.0 XHCI
+        # Включаем HTTPS, iSCSI, графику и полный стек USB для UEFI
         sed -i 's/#undef\tDOWNLOAD_PROTO_HTTPS/#define DOWNLOAD_PROTO_HTTPS/' config/general.h
         sed -i 's/#undef\tSANBOOT_PROTO_ISCSI/#define SANBOOT_PROTO_ISCSI/' config/general.h
         sed -i 's/#undef\tSANBOOT_PROTO_HTTP/#define SANBOOT_PROTO_HTTP/' config/general.h
@@ -87,7 +83,7 @@ jobs:
         sed -i 's/#undef\tUSB_EFI/#define USB_EFI/' config/usb.h
         cp ../../chain.ipxe chain.ipxe
         
-        # Дописываем абсолютно все тяжелые команды отладки, включая PCI_CMD
+        # Записываем бескомпромиссный набор команд отладки и форматов образов для UEFI
         cat <<EOF > config/local/general.h
         #define DOWNLOAD_PROTO_NFS
         #define IMAGE_PNG
@@ -104,8 +100,9 @@ jobs:
         #define POWEROFF_CMD
         EOF
         
-        make bin-x86_64-efi/ipxe.efi EMBED=chain.ipxe
-        make bin-x86_64-efi/ipxe.usb EMBED=chain.ipxe
+        # Собираем UEFI, принудительно запрещая компилятору подтягивать pcbios-компоненты
+        make bin-x86_64-efi/ipxe.efi EMBED=chain.ipxe CONFIG=uefi
+        make bin-x86_64-efi/ipxe.usb EMBED=chain.ipxe CONFIG=uefi
 
     - name: Upload UEFI Artifacts
       uses: actions/upload-artifact@v4
