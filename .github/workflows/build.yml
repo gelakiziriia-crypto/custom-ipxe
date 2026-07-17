@@ -1,0 +1,48 @@
+name: Build Custom iPXE
+
+on:
+  workflow_dispatch:
+
+jobs:
+  build-ipxe:
+    runs-on: ubuntu-latest
+    steps:
+    - name: Checkout custom configs
+      uses: actions/checkout@v4
+
+    - name: Install build dependencies
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y build-essential liblzma-dev mtools mkisofs syslinux git
+
+    - name: Clone official iPXE
+      run: git clone https://github.com
+
+    - name: Apply custom configuration
+      run: |
+        cat config.h >> ipxe/src/config/general.h
+        cp chain.ipxe ipxe/src/chain.ipxe
+
+    - name: Compile BIOS binary
+      run: |
+        cd ipxe/src
+        make bin/undionly.kpxe EMBED=chain.ipxe
+
+    - name: Compile UEFI binary
+      run: |
+        cd ipxe/src
+        make bin-x86_64-efi/ipxe.efi EMBED=chain.ipxe
+
+    - name: Compile USB Flash image
+      run: |
+        cd ipxe/src
+        make bin-x86_64-efi/ipxe.usb EMBED=chain.ipxe
+
+    - name: Upload Artifacts
+      uses: actions/upload-artifact@v4
+      with:
+        name: ipxe-full-binaries
+        path: |
+          ipxe/src/bin/undionly.kpxe
+          ipxe/src/bin-x86_64-efi/ipxe.efi
+          ipxe/src/bin-x86_64-efi/ipxe.usb
