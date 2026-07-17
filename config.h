@@ -19,5 +19,3 @@
 #define USB_KEYBOARD
 #define USB_BLOCK
 #define USB_EFI
-#define CONSOLE_PCBIOS
-#define CONSOLE_EFI
