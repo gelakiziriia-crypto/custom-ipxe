@@ -18,7 +18,7 @@ jobs:
     - name: Clone official iPXE
       run: git clone --depth 1 https://github.com/ipxe/ipxe.git
 
-    - name: Apply custom configuration
+    - name: Prepare Core Configurations
       run: |
         sed -i 's/#undef\tDOWNLOAD_PROTO_HTTPS/#define DOWNLOAD_PROTO_HTTPS/' ipxe/src/config/general.h
         sed -i 's/#undef\tSANBOOT_PROTO_ISCSI/#define SANBOOT_PROTO_ISCSI/' ipxe/src/config/general.h
@@ -28,22 +28,54 @@ jobs:
         sed -i 's/#undef\tUSB_KEYBOARD/#define USB_KEYBOARD/' ipxe/src/config/usb.h
         sed -i 's/#undef\tUSB_BLOCK/#define USB_BLOCK/' ipxe/src/config/usb.h
         sed -i 's/#undef\tUSB_EFI/#define USB_EFI/' ipxe/src/config/usb.h
-        cat config.h >> ipxe/src/config/general.h
         cp chain.ipxe ipxe/src/chain.ipxe
 
-    - name: Compile BIOS binary
+    - name: Compile Full BIOS binary
       run: |
         cd ipxe/src
+        # Для BIOS пишем максимальный конфиг со всеми командами и bzImage
+        cat <<EOF >> config.h
+        #define DOWNLOAD_PROTO_NFS
+        #define IMAGE_BZIMAGE
+        #define IMAGE_COMBOOT
+        #define IMAGE_PNG
+        #define IMAGE_SCRIPT
+        #define CONSOLE_CMD
+        #define CONFIG_CMD
+        #define MENU_CMD
+        #define SHELL_CMD
+        #define PING_CMD
+        #define PCI_CMD
+        #define PARAM_CMD
+        #define REBOOT_CMD
+        #define POWEROFF_CMD
+        EOF
+        cat config.h >> config/general.h
         make bin/undionly.kpxe EMBED=chain.ipxe
 
-    - name: Compile UEFI binary
+    - name: Compile Full UEFI binary
       run: |
         cd ipxe/src
+        # Чистим старый конфиг BIOS
+        git checkout config/general.h
+        # Для UEFI собираем максимальный набор команд, но без bzImage (используем IMAGE_EFI)
+        cat <<EOF >> config.h
+        #define DOWNLOAD_PROTO_NFS
+        #define IMAGE_PNG
+        #define IMAGE_SCRIPT
+        #define IMAGE_EFI
+        #define CONSOLE_CMD
+        #define CONFIG_CMD
+        #define MENU_CMD
+        #define SHELL_CMD
+        #define PING_CMD
+        #define PCI_CMD
+        #define PARAM_CMD
+        #define REBOOT_CMD
+        #define POWEROFF_CMD
+        EOF
+        cat config.h >> config/general.h
         make bin-x86_64-efi/ipxe.efi EMBED=chain.ipxe
-
-    - name: Compile USB Flash image
-      run: |
-        cd ipxe/src
         make bin-x86_64-efi/ipxe.usb EMBED=chain.ipxe
 
     - name: Upload Artifacts
