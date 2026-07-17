@@ -1,0 +1,41 @@
+#!ipxe
+
+echo Booting network (DHCP)...
+dhcp || echo Network fallback...
+
+prompt --key 0x78 --timeout 5000 Press [x] for Service Menu... && goto service_menu || goto chain_process
+
+:chain_process
+echo Searching local boot scripts...
+chain tftp://${next-server}/menu.ipxe || goto try_default
+
+:try_default
+chain tftp://${next-server}/default.ipxe || goto boot_failed
+
+:boot_failed
+echo Error: Local scripts not found!
+goto service_menu
+
+:service_menu
+menu iPXE Service Menu (Debug and Cloud)
+item netbootxyz  Run Netboot.xyz (Cloud HTTPS)
+item ipxeshell   Open iPXE CLI (Shell)
+item ipxeconfig  Open iPXE Settings (Config)
+item retry_local Retry Local Boot
+choose --timeout 30000 --default netbootxyz target || goto chain_process
+goto ${target}
+
+:netbootxyz
+echo Loading Netboot.xyz over HTTPS...
+chain --autofree https://netboot.xyz || chain http://netboot.xyz || goto service_menu
+
+:ipxeshell
+shell
+goto service_menu
+
+:ipxeconfig
+config
+goto service_menu
+
+:retry_local
+goto chain_process
