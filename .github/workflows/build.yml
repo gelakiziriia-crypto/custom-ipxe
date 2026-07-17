@@ -66,7 +66,7 @@ jobs:
         sudo apt-get install -y build-essential liblzma-dev mtools xorriso git
 
     - name: Clone official iPXE
-      run: git clone --depth 1 https://github.com
+      run: git clone --depth 1 https://github.com/ipxe/ipxe.git
 
     - name: Compile UEFI Binaries
       run: |
