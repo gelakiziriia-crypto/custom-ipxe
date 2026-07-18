@@ -1,41 +1,67 @@
 #!ipxe
 
-echo Booting network (DHCP)...
-dhcp || echo Network fallback...
+# 1. Сразу даем 2 секунды на нажатие "x", не тратя время на сеть (пробел перед prompt удален)
+prompt --key 0x78 --timeout 2000 Press [x] for Autonomous Service Menu... && goto service_menu || goto server_boot
 
-prompt --key 0x78 --timeout 2000 Press [x] for Service Menu... && goto service_menu || goto chain_process
+:server_boot
+echo [Server Mode] Detecting active LAN interfaces...
 
-:chain_process
-echo Searching local boot scripts...
-chain tftp://${next-server}/menu.ipxe || goto try_default
+# Проверяем net0
+isset ${net0/ssid} && goto check_net1 || goto try_net0
+:try_net0
+echo Trying DHCP on net0 (Wire LAN)...
+dhcp net0 && goto run_chain || goto check_net1
 
-:try_default
-chain tftp://${next-server}/default.ipxe || goto boot_failed
+# Проверяем net1 (если net0 был Wi-Fi или не ответил)
+:check_net1
+isset ${net1/ssid} && goto check_net2 || goto try_net1
+:try_net1
+echo Trying DHCP on net1 (Wire LAN)...
+dhcp net1 && goto run_chain || goto check_net2
+
+# Проверяем net2 (на случай кучи виртуальных/встроенных адаптеров)
+:check_net2
+isset ${net2/ssid} && goto boot_failed || goto try_net2
+:try_net2
+echo Trying DHCP on net2 (Wire LAN)...
+dhcp net2 && goto run_chain || goto boot_failed
+
+:run_chain
+echo [Server Mode] Successfully connected! Loading script...
+# Безопасная проверка: если имя файла от TinyPXE передано, пробуем его, иначе идем к дефолтным
+isset ${filename} && chain tftp://${next-server}/${filename} || chain tftp://${next-server}/menu.ipxe || chain tftp://${next-server}/default.ipxe || goto boot_failed
 
 :boot_failed
-echo Error: Local scripts not found!
+echo [Error] Wired network boot failed or TinyPXE Server is offline!
+echo Entering Service Menu as fallback...
 goto service_menu
 
 :service_menu
-menu iPXE Service Menu (Debug and Cloud)
+# 3. АВТОНОМНЫЙ РЕЖИМ: Активируется по кнопке "x" или если сервер не ответил
+echo [Service Mode] Initializing ALL interfaces for cloud/tools...
+# Включаем абсолютно все сетевые интерфейсы (и LAN, и Wi-Fi), чтобы iPXE видел интернет
+ifopen && dhcp || echo [Warning] Network configuration failed.
+
+:menu_loop
+menu iPXE Autonomous Service Menu (Debug & Cloud)
 item netbootxyz  Run Netboot.xyz (Cloud HTTPS)
 item ipxeshell   Open iPXE CLI (Shell)
 item ipxeconfig  Open iPXE Settings (Config)
-item retry_local Retry Local Boot
-choose --timeout 30000 --default netbootxyz target || goto chain_process
+item retry_local Retry Local TinyPXE Boot
+choose --timeout 30000 --default netbootxyz target || goto server_boot
 goto ${target}
 
 :netbootxyz
 echo Loading Netboot.xyz over HTTPS...
-chain --autofree https://boot.netboot.xyz || chain http://boot.netboot.xyz || goto service_menu
+chain --autofree https://boot.netboot.xyz || chain http://boot.netboot.xyz || goto menu_loop
 
 :ipxeshell
 shell
-goto service_menu
+goto menu_loop
 
 :ipxeconfig
 config
-goto service_menu
+goto menu_loop
 
 :retry_local
-goto chain_process
+goto server_boot
