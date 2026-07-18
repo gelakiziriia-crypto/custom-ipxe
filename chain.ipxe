@@ -1,46 +1,85 @@
 #!ipxe
 
-# 1. Сразу даем 2 секунды на нажатие "x", не тратя время на сеть (пробел перед prompt удален)
+# Флаг-щит для защиты от деструктивного DHCP во вложенных скриптах
+set dhcp_allowed 0
+
+alias old_dhcp dhcp
+cat <<EOF > dhcp.ipxe
+#!ipxe
+iseq \${dhcp_allowed} 1 && old_dhcp \${*} || echo [iPXE Shield] Blocked destructive DHCP reset to protect 2.5G LAN!
+EOF
+alias dhcp chain dhcp.ipxe
+
+# 1. Задержка на меню (X)
 prompt --key 0x78 --timeout 2000 Press [x] for Autonomous Service Menu... && goto service_menu || goto server_boot
 
 :server_boot
-echo [Server Mode] Detecting active LAN interfaces...
+echo [Server Mode] Checking for already active network...
+# СТРОГОЕ УСЛОВИЕ: Если IP уже поднят платой — бежим на сервер, НИЧЕГО НЕ ТРОГАЯ
+isset ${ip} && goto run_chain || item_skip
+:item_skip
+isset ${net0/ip} && goto run_chain || goto check_existing_interfaces
 
-# Проверяем net0
+:check_existing_interfaces
+# Если IP нет, но интерфейс net0 уже существует в системе (инициализирован BIOS)
+# Мы пробуем получить на нем DHCP, но БЕЗ использования команды ifopen (чтобы не сбросить шину)
+isset ${net0} && goto try_native_dhcp || goto hardware_scan
+
+:try_native_dhcp
+echo [Server Mode] Existing net0 found. Requesting DHCP...
+set dhcp_allowed 1
+old_dhcp net0 || goto hardware_scan
+goto run_chain
+
+:hardware_scan
+# Сюда мы попадаем, если BIOS вообще не инициализировал сеть.
+# Включаем нативные драйверы iPXE, заставляя их поднять чипы на PCI/USB
+echo [Server Mode] Network interfaces missing! Activating native drivers scan...
+ifopen || echo [Warning] No hardware devices responded to native drivers.
+
+# Разрешаем DHCP для первичной настройки найденного железа
+set dhcp_allowed 1
+
+# Безопасный перебор свеженайденных проводных интерфейсов (игнорируя Wi-Fi)
 isset ${net0/ssid} && goto check_net1 || goto try_net0
 :try_net0
-echo Trying DHCP on net0 (Wire LAN)...
-dhcp net0 && goto run_chain || goto check_net1
+echo Trying DHCP on net0...
+old_dhcp net0 || goto check_net1
+goto run_chain
 
-# Проверяем net1 (если net0 был Wi-Fi или не ответил)
 :check_net1
 isset ${net1/ssid} && goto check_net2 || goto try_net1
 :try_net1
-echo Trying DHCP on net1 (Wire LAN)...
-dhcp net1 && goto run_chain || goto check_net2
+echo Trying DHCP on net1...
+old_dhcp net1 || goto check_net2
+goto run_chain
 
-# Проверяем net2 (на случай кучи виртуальных/встроенных адаптеров)
 :check_net2
 isset ${net2/ssid} && goto boot_failed || goto try_net2
 :try_net2
-echo Trying DHCP on net2 (Wire LAN)...
-dhcp net2 && goto run_chain || goto boot_failed
+echo Trying DHCP on net2...
+old_dhcp net2 || goto boot_failed
+goto run_chain
 
 :run_chain
-echo [Server Mode] Successfully connected! Loading script...
-# Безопасная проверка: если имя файла от TinyPXE передано, пробуем его, иначе идем к дефолтным
+set dhcp_allowed 0
+echo [Server Mode] Connection active! Loading script from TinyPXE...
 isset ${filename} && chain tftp://${next-server}/${filename} || chain tftp://${next-server}/menu.ipxe || chain tftp://${next-server}/default.ipxe || goto boot_failed
 
 :boot_failed
 echo [Error] Wired network boot failed or TinyPXE Server is offline!
-echo Entering Service Menu as fallback...
 goto service_menu
 
 :service_menu
-# 3. АВТОНОМНЫЙ РЕЖИМ: Активируется по кнопке "x" или если сервер не ответил
-echo [Service Mode] Initializing ALL interfaces for cloud/tools...
-# Включаем абсолютно все сетевые интерфейсы (и LAN, и Wi-Fi), чтобы iPXE видел интернет
-ifopen && dhcp || echo [Warning] Network configuration failed.
+# 3. АВТОНОМНЫЙ РЕЖИМ (Cloud / Интернет через стороннюю сеть)
+echo [Service Mode] Checking cloud connection...
+isset ${ip} && goto menu_loop || goto init_cloud_net
+
+:init_cloud_net
+echo [Service Mode] Initializing network for tools...
+set dhcp_allowed 1
+# Для автономного режима в дороге принудительно открываем всё (включая Wi-Fi)
+ifopen && old_dhcp || echo [Warning] Network configuration failed.
 
 :menu_loop
 menu iPXE Autonomous Service Menu (Debug & Cloud)
@@ -64,4 +103,6 @@ config
 goto menu_loop
 
 :retry_local
+set dhcp_allowed 1
+ifclose net0 || ifclose net1 || ifclose net2
 goto server_boot
