@@ -3,7 +3,7 @@
 echo Booting network (DHCP)...
 dhcp || echo Network fallback...
 
-prompt --key 0x78 --timeout 5000 Press [x] for Service Menu... && goto service_menu || goto chain_process
+prompt --key 0x78 --timeout 2000 Press [x] for Service Menu... && goto service_menu || goto chain_process
 
 :chain_process
 echo Searching local boot scripts...
@@ -27,7 +27,7 @@ goto ${target}
 
 :netbootxyz
 echo Loading Netboot.xyz over HTTPS...
-chain --autofree https://netboot.xyz || chain http://netboot.xyz || goto service_menu
+chain --autofree https://boot.netboot.xyz || chain http://boot.netboot.xyz || goto service_menu
 
 :ipxeshell
 shell
