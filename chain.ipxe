@@ -3,15 +3,20 @@
 # Флаг-щит для защиты от деструктивного DHCP во вложенных скриптах
 set dhcp_allowed 0
 
-alias old_dhcp dhcp
-cat <<EOF > dhcp.ipxe
+# Создаем DHCP-щит через механизм встроенных образов (imgfetch/cat)
+# Мы создаем виртуальный файл скрипта с именем "dhcp" прямо в оперативной памяти
+imgfree dhcp
+cat <<EOF > dhcp
 #!ipxe
-iseq \${dhcp_allowed} 1 && old_dhcp \${*} || echo [iPXE Shield] Blocked destructive DHCP reset to protect 2.5G LAN!
+# ИСПРАВЛЕНО: Никаких обратных слэшей. iPXE бережно сохранит переменные как текст
+iseq ${dhcp_allowed} 1 && ifconf ${*} || echo [iPXE Shield] Blocked destructive DHCP reset to protect 2.5G LAN!
 EOF
-alias dhcp chain dhcp.ipxe
+
+# Явно задаем тип "script", чтобы UEFI iPXE гарантированно перехватывал команду dhcp из памяти
+imgselect dhcp --type script
 
 # 1. Задержка на меню (X)
-prompt --key 0x78 --timeout 2000 Press [x] for Autonomous Service Menu... && goto service_menu || goto server_boot
+prompt --key 0x78 --timeout 3000 Press [x] for Autonomous Service Menu... && goto service_menu || goto server_boot
 
 :server_boot
 echo [Server Mode] Checking for already active network...
@@ -22,13 +27,13 @@ isset ${net0/ip} && goto run_chain || goto check_existing_interfaces
 
 :check_existing_interfaces
 # Если IP нет, но интерфейс net0 уже существует в системе (инициализирован BIOS)
-# Мы пробуем получить на нем DHCP, но БЕЗ использования команды ifopen (чтобы не сбросить шину)
+# Мы пробуем получить на нем DHCP (через ifconf), но БЕЗ использования команды ifopen (чтобы не сбросить шину)
 isset ${net0} && goto try_native_dhcp || goto hardware_scan
 
 :try_native_dhcp
 echo [Server Mode] Existing net0 found. Requesting DHCP...
 set dhcp_allowed 1
-old_dhcp net0 || goto hardware_scan
+ifconf net0 || goto hardware_scan
 goto run_chain
 
 :hardware_scan
@@ -44,24 +49,25 @@ set dhcp_allowed 1
 isset ${net0/ssid} && goto check_net1 || goto try_net0
 :try_net0
 echo Trying DHCP on net0...
-old_dhcp net0 || goto check_net1
+ifconf net0 || goto check_net1
 goto run_chain
 
 :check_net1
 isset ${net1/ssid} && goto check_net2 || goto try_net1
 :try_net1
 echo Trying DHCP on net1...
-old_dhcp net1 || goto check_net2
+ifconf net1 || goto check_net2
 goto run_chain
 
 :check_net2
-isset ${net2/ssid} && goto boot_failed || goto try_net2
+isset ${net2/ssid} && boot_failed || goto try_net2
 :try_net2
 echo Trying DHCP on net2...
-old_dhcp net2 || goto boot_failed
+ifconf net2 || goto boot_failed
 goto run_chain
 
 :run_chain
+# Сеть успешно поднята. Наглухо включаем DHCP-щит перед передачей управления серверу
 set dhcp_allowed 0
 echo [Server Mode] Connection active! Loading script from TinyPXE...
 isset ${filename} && chain tftp://${next-server}/${filename} || chain tftp://${next-server}/menu.ipxe || chain tftp://${next-server}/default.ipxe || goto boot_failed
@@ -77,9 +83,9 @@ isset ${ip} && goto menu_loop || goto init_cloud_net
 
 :init_cloud_net
 echo [Service Mode] Initializing network for tools...
+# В автономном режиме (интернет) нам НУЖЕН сброс и поиск Wi-Fi, поэтому разрешаем dhcp
 set dhcp_allowed 1
-# Для автономного режима в дороге принудительно открываем всё (включая Wi-Fi)
-ifopen && old_dhcp || echo [Warning] Network configuration failed.
+ifopen && ifconf || echo [Warning] Network configuration failed.
 
 :menu_loop
 menu iPXE Autonomous Service Menu (Debug & Cloud)
@@ -101,8 +107,3 @@ goto menu_loop
 :ipxeconfig
 config
 goto menu_loop
-
-:retry_local
-set dhcp_allowed 1
-ifclose net0 || ifclose net1 || ifclose net2
-goto server_boot
