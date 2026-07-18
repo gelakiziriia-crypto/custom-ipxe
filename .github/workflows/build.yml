@@ -4,7 +4,57 @@ on:
   workflow_dispatch:
 
 jobs:
-  # Блок build-bios полностью удален, так как файлы уже получены
+  build-bios:
+    name: Compile BIOS (Legacy)
+    runs-on: ubuntu-latest
+    steps:
+    - name: Checkout custom configs
+      uses: actions/checkout@v4
+
+    - name: Install build dependencies
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y build-essential liblzma-dev mtools syslinux git
+
+    - name: Clone official iPXE
+      run: git clone https://github.com/ipxe/ipxe.git
+
+    - name: Compile BIOS Binary
+      run: |
+        cd ipxe/src
+        sed -i 's/#undef\tDOWNLOAD_PROTO_HTTPS/#define DOWNLOAD_PROTO_HTTPS/' config/general.h
+        sed -i 's/#undef\tSANBOOT_PROTO_ISCSI/#define SANBOOT_PROTO_ISCSI/' config/general.h
+        sed -i 's/#undef\tSANBOOT_PROTO_HTTP/#define SANBOOT_PROTO_HTTP/' config/general.h
+        sed -i 's/#undef\tCONSOLE_FRAMEBUFFER/#define CONSOLE_FRAMEBUFFER/' config/console.h
+        
+        # Исправление пути копирования скрипта и проверка на ошибку
+        cp ../../chain.ipxe chain.ipxe || cp ../chain.ipxe chain.ipxe || { echo "Критическая ошибка: chain.ipxe не найден!"; exit 1; }
+        
+        cat <<EOF > config/local/general.h
+        #define DOWNLOAD_PROTO_NFS
+        #define IMAGE_BZIMAGE
+        #define IMAGE_COMBOOT
+        #define IMAGE_PNG
+        #define IMAGE_SCRIPT
+        #define CONSOLE_CMD
+        #define CONFIG_CMD
+        #define MENU_CMD
+        #define SHELL_CMD
+        #define PING_CMD
+        #define PCI_CMD
+        #define PARAM_CMD
+        #define REBOOT_CMD
+        #define POWEROFF_CMD
+        EOF
+        
+        make bin/undionly.kpxe EMBED=chain.ipxe
+
+    - name: Upload BIOS Artifact
+      uses: actions/upload-artifact@v4
+      with:
+        name: ipxe-bios-binary
+        path: ipxe/src/bin/undionly.kpxe
+
   build-uefi:
     name: Compile UEFI (64-bit)
     runs-on: ubuntu-latest
@@ -15,17 +65,15 @@ jobs:
     - name: Install build dependencies
       run: |
         sudo apt-get update
-        # Устанавливаем syslinux и syslinux-common для успешной сборки .usb образа
+        # Возвращены пакеты syslinux для сборки .usb образа
         sudo apt-get install -y build-essential liblzma-dev mtools xorriso syslinux syslinux-common git
 
     - name: Clone official iPXE
-      run: git clone --depth 1 https://github.com/ipxe/ipxe.git
+      run: git clone https://github.com/ipxe/ipxe.git
 
     - name: Compile UEFI Binaries
       run: |
         cd ipxe/src
-        
-        # Включаем HTTPS, iSCSI, графику и полный стек USB для UEFI
         sed -i 's/#undef\tDOWNLOAD_PROTO_HTTPS/#define DOWNLOAD_PROTO_HTTPS/' config/general.h
         sed -i 's/#undef\tSANBOOT_PROTO_ISCSI/#define SANBOOT_PROTO_ISCSI/' config/general.h
         sed -i 's/#undef\tSANBOOT_PROTO_HTTP/#define SANBOOT_PROTO_HTTP/' config/general.h
@@ -34,10 +82,13 @@ jobs:
         sed -i 's/#undef\tUSB_KEYBOARD/#define USB_KEYBOARD/' config/usb.h
         sed -i 's/#undef\tUSB_BLOCK/#define USB_BLOCK/' config/usb.h
         sed -i 's/#undef\tUSB_EFI/#define USB_EFI/' config/usb.h
-        cp ../../chain.ipxe chain.ipxe
         
-        # Записываем бескомпромиссный набор команд отладки и форматов образов для UEFI
+        # Исправление пути копирования скрипта и проверка на ошибку
+        cp ../../chain.ipxe chain.ipxe || cp ../chain.ipxe chain.ipxe || { echo "Критическая ошибка: chain.ipxe не найден!"; exit 1; }
+        
+        # Нативно и жестко запрещаем UEFI-версии трогать pcbios-компоненты
         cat <<EOF > config/local/general.h
+        #undef CONSOLE_PCBIOS
         #define DOWNLOAD_PROTO_NFS
         #define IMAGE_PNG
         #define IMAGE_SCRIPT
@@ -53,11 +104,11 @@ jobs:
         #define POWEROFF_CMD
         EOF
         
-        # Собираем чистый .efi файл
-        make bin-x86_64-efi/ipxe.efi EMBED=chain.ipxe CONFIG=uefi
+        # Компилируем чистый .efi
+        make bin-x86_64-efi/ipxe.efi EMBED=chain.ipxe
         
-        # Собираем .usb файл, принудительно указав путь к mbr.bin в Ubuntu окружении
-        make bin-x86_64-efi/ipxe.usb EMBED=chain.ipxe CONFIG=uefi SYSLINUX_MBR=/usr/lib/syslinux/mbr/mbr.bin
+        # Компилируем .usb с явным указанием расположения системного mbr.bin
+        make bin-x86_64-efi/ipxe.usb EMBED=chain.ipxe SYSLINUX_MBR=/usr/lib/syslinux/mbr/mbr.bin
 
     - name: Upload UEFI Artifacts
       uses: actions/upload-artifact@v4
